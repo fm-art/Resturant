@@ -74,6 +74,7 @@
     .toast.success { border-left: 4px solid var(--primary); }
     .toast.danger { border-left: 4px solid var(--danger); }
     .toast.info { border-left: 4px solid var(--info); }
+    .toast.warning { border-left: 4px solid var(--warning); }
 
     @keyframes slideIn {
       from { transform: translateX(100%); opacity: 0; }
@@ -280,6 +281,25 @@
     .header-logo i {
       color: var(--primary);
       font-size: 1.4rem;
+    }
+
+    /* Incoming Order Ringing Header Alert */
+    #header-ringing-alert {
+      display: none;
+      background: #dc2626;
+      color: #fff;
+      font-weight: 900;
+      font-size: 0.75rem;
+      padding: 4px 10px;
+      border-radius: 20px;
+      animation: pulseAlert 0.8s infinite;
+      cursor: pointer;
+    }
+
+    @keyframes pulseAlert {
+      0% { transform: scale(0.98); opacity: 0.85; }
+      50% { transform: scale(1.05); opacity: 1; }
+      100% { transform: scale(0.98); opacity: 0.85; }
     }
 
     /* Store Open/Close Toggle Button */
@@ -680,6 +700,9 @@
           <i class="fa-solid fa-basket-shopping"></i>
           <span id="header-store-name">Gossaigaon Bazar</span>
         </div>
+        <div id="header-ringing-alert" onclick="switchTab('orders')">
+          <i class="fa-solid fa-bell fa-shake"></i> NEW ORDER RINGING!
+        </div>
       </div>
       <div style="display: flex; align-items: center; gap: 8px;">
         <!-- Live Store Duty Switch -->
@@ -723,7 +746,7 @@
         <div class="card-title">
           <span>Active Grocery Orders to Pack</span>
           <span style="font-size: 0.82rem; color: var(--text-muted); font-weight: 600;">
-            ⚡ 15-Minute Express Orders automatically ring here
+            ⚡ 15-Minute Express Orders ring here until accepted
           </span>
         </div>
         <div class="orders-queue" id="orders-queue-container">
@@ -948,7 +971,6 @@
           <textarea id="item-desc" class="form-input" rows="2" placeholder="e.g. 1 kg pack, Fresh Farm Harvest"></textarea>
         </div>
 
-        <!-- Direct Phone Upload + URL Input with Live Preview -->
         <div class="form-group">
           <label>Product Photo</label>
           <div style="margin-bottom: 8px;">
@@ -1014,8 +1036,7 @@
     let customersCache = {};
     let storePayoutsCache = {};
     let soundEnabled = true;
-    let prevNewOrderCount = null;
-    let prevCancelledOrderCount = null;
+    let sirenIntervalId = null;
     let currentPendingPayoutBalance = 0;
     let platformCommissionRate = 5;
 
@@ -1032,13 +1053,10 @@
       return /^[a-zA-Z0-9.\-_]{2,256}@[a-zA-Z]{2,64}$/.test(String(upi || '').trim());
     }
 
-    // ==========================================
-    // 📸 SMART PHOTO UPLOAD & URL CLEANER
-    // ==========================================
     function cleanAndResolveImageUrl(rawUrl) {
       let url = String(rawUrl || '').trim();
       if (!url) return '';
-      if (url.startsWith('data:image')) return url; // Base64 direct
+      if (url.startsWith('data:image')) return url;
 
       if (url.includes('google.') && url.includes('imgurl=')) {
         try {
@@ -1146,29 +1164,57 @@
       setTimeout(() => t.remove(), 4000);
     }
 
-    function playOrderChime() {
+    // CONTINUOUS LOUD SIREN ALARM FOR INCOMING UNACCEPTED ORDERS
+    function playOrderChimePulse() {
       if (!soundEnabled) return;
       try {
         const audioCtx = new (window.AudioContext || window.webkitAudioContext)();
         const osc = audioCtx.createOscillator();
         const gain = audioCtx.createGain();
-        osc.type = 'sine';
-        osc.frequency.setValueAtTime(587.33, audioCtx.currentTime);
-        osc.frequency.exponentialRampToValueAtTime(880, audioCtx.currentTime + 0.15);
-        gain.gain.setValueAtTime(0.35, audioCtx.currentTime);
-        gain.gain.exponentialRampToValueAtTime(0.01, audioCtx.currentTime + 0.4);
+        osc.type = 'triangle';
+        osc.frequency.setValueAtTime(659.25, audioCtx.currentTime); // E5
+        osc.frequency.exponentialRampToValueAtTime(987.77, audioCtx.currentTime + 0.18); // B5
+        gain.gain.setValueAtTime(0.4, audioCtx.currentTime);
+        gain.gain.exponentialRampToValueAtTime(0.01, audioCtx.currentTime + 0.5);
         osc.connect(gain);
         gain.connect(audioCtx.destination);
         osc.start();
-        osc.stop(audioCtx.currentTime + 0.4);
+        osc.stop(audioCtx.currentTime + 0.5);
       } catch (e) {}
+    }
+
+    function evaluateOrderSiren(placedOrdersCount) {
+      const alertPill = document.getElementById('header-ringing-alert');
+
+      if (placedOrdersCount > 0) {
+        alertPill.style.display = 'inline-block';
+        alertPill.innerHTML = `<i class="fa-solid fa-bell fa-shake"></i> ${placedOrdersCount} NEW ORDER${placedOrdersCount > 1 ? 'S' : ''}!`;
+
+        if (!sirenIntervalId && soundEnabled) {
+          playOrderChimePulse();
+          sirenIntervalId = setInterval(() => {
+            playOrderChimePulse();
+          }, 3500);
+        }
+      } else {
+        alertPill.style.display = 'none';
+        if (sirenIntervalId) {
+          clearInterval(sirenIntervalId);
+          sirenIntervalId = null;
+        }
+      }
     }
 
     function toggleMute() {
       soundEnabled = !soundEnabled;
       const btn = document.getElementById('sound-btn');
       btn.innerHTML = soundEnabled ? '<i class="fa-solid fa-volume-high"></i> Alert: ON' : '<i class="fa-solid fa-volume-xmark"></i> Alert: OFF';
-      showToast(soundEnabled ? 'Chime sound active.' : 'Chime sound muted.', 'info');
+      
+      if (!soundEnabled && sirenIntervalId) {
+        clearInterval(sirenIntervalId);
+        sirenIntervalId = null;
+      }
+      showToast(soundEnabled ? 'Order sound alert active.' : 'Order sound muted.', 'info');
     }
 
     // ==========================================
@@ -1267,6 +1313,10 @@
       } else {
         currentUser = null;
         storeProfile = null;
+        if (sirenIntervalId) {
+          clearInterval(sirenIntervalId);
+          sirenIntervalId = null;
+        }
         authScreen.style.display = 'flex';
         document.getElementById('app-container').style.display = 'none';
       }
@@ -1316,19 +1366,8 @@
           if (o.restaurantId === currentUser.uid) myOrders[id] = o;
         });
 
-        const placedCount = Object.values(myOrders).filter(o => o.status === 'PLACED').length;
-        const cancelledCount = Object.values(myOrders).filter(o => o.status === 'CANCELLED').length;
-
-        if (prevNewOrderCount !== null && placedCount > prevNewOrderCount) {
-          playOrderChime();
-          showToast('🔔 New Customer Order Received!', 'success');
-        }
-        if (prevCancelledOrderCount !== null && cancelledCount > prevCancelledOrderCount) {
-          showToast('❌ Alert: Order was CANCELLED!', 'danger');
-        }
-
-        prevNewOrderCount = placedCount;
-        prevCancelledOrderCount = cancelledCount;
+        const placedOrders = Object.values(myOrders).filter(o => o.status === 'PLACED');
+        evaluateOrderSiren(placedOrders.length);
 
         ordersCache = myOrders;
         renderOrdersQueue();
@@ -1364,7 +1403,6 @@
         badge.textContent = 'Pending Admin Approval';
       }
 
-      // Store Duty Indicator
       const dutyDot = document.getElementById('duty-indicator');
       const dutyLabel = document.getElementById('duty-label');
       if (storeProfile.isOpen !== false) {
@@ -1471,7 +1509,7 @@
         queue.innerHTML = `
           <div style="grid-column: 1/-1; text-align: center; color: var(--text-muted); padding: 3rem;">
             <i class="fa-solid fa-basket-shopping" style="font-size: 2.5rem; margin-bottom: 1rem; opacity: 0.4; display: block;"></i>
-            No active grocery orders right now. New customer orders will appear here automatically.
+            No active grocery orders right now. New customer orders will ring here automatically.
           </div>
         `;
         return;
@@ -1567,6 +1605,41 @@
         const customerMapLink = (o.customerLat && o.customerLng) ? `https://www.google.com/maps?q=${o.customerLat},${o.customerLng}` : (o.locationLink || "");
         const cleanRiderPhone = rider?.phone ? rider.phone.replace(/[^0-9]/g, '') : '';
 
+        // SMART REASSIGNMENT & PASSING FEEDBACK FOR STORE
+        let riderBoxContent = '';
+        if (rider) {
+          riderBoxContent = `
+            <div style="display: flex; justify-content: space-between; align-items: center; margin-top: 3px;">
+              <strong style="color: #fff;"><i class="fa-solid fa-motorcycle" style="color:var(--primary);"></i> ${escapeHtml(rider.name)}</strong>
+              <div style="display: flex; gap: 6px;">
+                ${rider.phone ? `<a href="tel:${rider.phone}" class="btn btn-outline btn-sm" style="padding: 2px 7px; font-size:0.75rem;"><i class="fa-solid fa-phone"></i> Call</a>` : ''}
+                ${cleanRiderPhone ? `<a href="https://wa.me/${cleanRiderPhone}" target="_blank" class="btn btn-success btn-sm" style="padding: 2px 7px; font-size:0.75rem;"><i class="fa-brands fa-whatsapp"></i> Chat</a>` : ''}
+              </div>
+            </div>
+          `;
+        } else if (o.rejectedByRiders && Object.keys(o.rejectedByRiders).length > 0) {
+          const lastReject = Object.values(o.rejectedByRiders).pop();
+          riderBoxContent = `
+            <div style="color: var(--warning); font-size: 0.78rem; font-weight: 700; margin-top: 3px;">
+              <i class="fa-solid fa-arrows-split-up-and-left"></i> Previous rider passed (${escapeHtml(lastReject.riderName || 'Rider')}: ${escapeHtml(lastReject.reason || 'Busy')}).
+              <div style="color:#38bdf8; font-size:0.72rem; margin-top:2px;">⚡ System is auto-dispatching next online rider...</div>
+            </div>
+          `;
+        } else {
+          riderBoxContent = `<span style="color: var(--text-muted);">Awaiting Fleet Auto-Assignment</span>`;
+        }
+
+        // Road Emergency Notice
+        let emergencyNoticeHtml = '';
+        if (o.emergencyAlert) {
+          emergencyNoticeHtml = `
+            <div style="background: rgba(239, 68, 68, 0.15); border: 1px solid var(--danger); border-radius: 10px; padding: 0.65rem 0.85rem; margin-bottom: 0.75rem; font-size: 0.8rem; color: #fca5a5;">
+              <i class="fa-solid fa-triangle-exclamation" style="color:var(--danger);"></i> <strong>Rider Road Emergency:</strong>
+              <div>${escapeHtml(o.emergencyDetails || 'Rider had an issue on route. Contact Admin/Rider for item safety.')}</div>
+            </div>
+          `;
+        }
+
         queue.innerHTML += `
           <div class="packing-order-card ${cardClass}">
             <div>
@@ -1584,6 +1657,7 @@
               </div>
 
               ${isCustomerBanned ? `<div style="margin-bottom:0.5rem;"><span class="badge badge-danger">🚨 BANNED CUSTOMER ACCOUNT</span></div>` : ''}
+              ${emergencyNoticeHtml}
 
               <!-- Customer Address & Distance -->
               <div style="background: rgba(255,255,255,0.03); border-radius: 10px; padding: 0.6rem 0.8rem; margin-bottom: 0.75rem; font-size: 0.82rem;">
@@ -1617,7 +1691,7 @@
                 </div>
               </div>
 
-              <!-- Rider Info with Live Approach Meter -->
+              <!-- Rider Info with Live Approach Meter & Reassignment Notification -->
               <div style="background: rgba(0,0,0,0.3); border-radius: 10px; padding: 0.65rem 0.85rem; margin-bottom: 0.85rem; font-size: 0.82rem;">
                 <div style="display:flex; justify-content:space-between; align-items:center;">
                   <span style="color: var(--text-muted); font-size: 0.7rem; text-transform: uppercase; font-weight:700;">Assigned Rider</span>
@@ -1625,17 +1699,7 @@
                     <span style="color:#34d399; font-size:0.72rem; font-weight:800;">Rider is ~${distRiderToStore.toFixed(1)} km from your shop</span>
                   ` : ''}
                 </div>
-                ${rider ? `
-                  <div style="display: flex; justify-content: space-between; align-items: center; margin-top: 3px;">
-                    <strong style="color: #fff;"><i class="fa-solid fa-motorcycle" style="color:var(--primary);"></i> ${escapeHtml(rider.name)}</strong>
-                    <div style="display: flex; gap: 6px;">
-                      ${rider.phone ? `<a href="tel:${rider.phone}" class="btn btn-outline btn-sm" style="padding: 2px 7px; font-size:0.75rem;"><i class="fa-solid fa-phone"></i> Call</a>` : ''}
-                      ${cleanRiderPhone ? `<a href="https://wa.me/${cleanRiderPhone}" target="_blank" class="btn btn-success btn-sm" style="padding: 2px 7px; font-size:0.75rem;"><i class="fa-brands fa-whatsapp"></i> Chat</a>` : ''}
-                    </div>
-                  </div>
-                ` : `
-                  <span style="color: var(--text-muted);">Awaiting Fleet Auto-Assignment</span>
-                `}
+                ${riderBoxContent}
               </div>
             </div>
 
@@ -1870,11 +1934,10 @@
     }
 
     function deleteProduct(itemId) {
-      if (confirm('Delete this product from your catalog?')) {
-        db.ref(`menus/${currentUser.uid}/${itemId}`).remove().then(() => {
-          showToast('Product removed.', 'danger');
-        });
-      }
+      if (!confirm('Delete this product from your catalog?')) return;
+      db.ref(`menus/${currentUser.uid}/${itemId}`).remove().then(() => {
+        showToast('Product removed.', 'danger');
+      });
     }
 
     // ==========================================
@@ -2072,7 +2135,12 @@
     });
 
     function escapeHtml(text) {
-      return String(text || '').replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+      return String(text || '')
+        .replace(/&/g, "&amp;")
+        .replace(/</g, "&lt;")
+        .replace(/>/g, "&gt;")
+        .replace(/"/g, "&quot;")
+        .replace(/'/g, "&#039;");
     }
   </script>
 </body>
