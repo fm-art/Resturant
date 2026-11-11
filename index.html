@@ -417,6 +417,7 @@
     .packing-order-card.new-order { border-left: 5px solid var(--primary); }
     .packing-order-card.packing { border-left: 5px solid var(--warning); }
     .packing-order-card.ready { border-left: 5px solid var(--info); }
+    .packing-order-card.locked-order { border-left: 5px solid var(--danger); }
 
     .order-head {
       display: flex;
@@ -948,7 +949,7 @@
     </main>
   </div>
 
-  <!-- ADD / EDIT PRODUCT MODAL (DIRECT PHOTO UPLOAD + LIVE PREVIEW) -->
+  <!-- ADD / EDIT PRODUCT MODAL -->
   <div class="modal-backdrop" id="productModal">
     <div class="modal-box">
       <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 1.25rem;">
@@ -1164,7 +1165,6 @@
       setTimeout(() => t.remove(), 4000);
     }
 
-    // CONTINUOUS LOUD SIREN ALARM FOR INCOMING UNACCEPTED ORDERS
     function playOrderChimePulse() {
       if (!soundEnabled) return;
       try {
@@ -1172,8 +1172,8 @@
         const osc = audioCtx.createOscillator();
         const gain = audioCtx.createGain();
         osc.type = 'triangle';
-        osc.frequency.setValueAtTime(659.25, audioCtx.currentTime); // E5
-        osc.frequency.exponentialRampToValueAtTime(987.77, audioCtx.currentTime + 0.18); // B5
+        osc.frequency.setValueAtTime(659.25, audioCtx.currentTime);
+        osc.frequency.exponentialRampToValueAtTime(987.77, audioCtx.currentTime + 0.18);
         gain.gain.setValueAtTime(0.4, audioCtx.currentTime);
         gain.gain.exponentialRampToValueAtTime(0.01, audioCtx.currentTime + 0.5);
         osc.connect(gain);
@@ -1183,12 +1183,12 @@
       } catch (e) {}
     }
 
-    function evaluateOrderSiren(placedOrdersCount) {
+    function evaluateOrderSiren(actionableOrdersCount) {
       const alertPill = document.getElementById('header-ringing-alert');
 
-      if (placedOrdersCount > 0) {
+      if (actionableOrdersCount > 0) {
         alertPill.style.display = 'inline-block';
-        alertPill.innerHTML = `<i class="fa-solid fa-bell fa-shake"></i> ${placedOrdersCount} NEW ORDER${placedOrdersCount > 1 ? 'S' : ''}!`;
+        alertPill.innerHTML = `<i class="fa-solid fa-bell fa-shake"></i> ${actionableOrdersCount} NEW ORDER${actionableOrdersCount > 1 ? 'S' : ''}!`;
 
         if (!sirenIntervalId && soundEnabled) {
           playOrderChimePulse();
@@ -1366,8 +1366,12 @@
           if (o.restaurantId === currentUser.uid) myOrders[id] = o;
         });
 
-        const placedOrders = Object.values(myOrders).filter(o => o.status === 'PLACED');
-        evaluateOrderSiren(placedOrders.length);
+        // Ring siren only for ACTIONABLE placed orders (COD or Verified UPI)
+        // If an order is unverified UPI, store should NOT pack/rush it!
+        const actionablePlacedOrders = Object.values(myOrders).filter(o => 
+          o.status === 'PLACED' && !(o.paymentMode === 'UPI' && o.paymentStatus !== 'VERIFIED')
+        );
+        evaluateOrderSiren(actionablePlacedOrders.length);
 
         ordersCache = myOrders;
         renderOrdersQueue();
@@ -1494,7 +1498,7 @@
     });
 
     // ==========================================
-    // 5. PACKING QUEUE & THERMAL KOT BILL
+    // 5. PACKING QUEUE & THERMAL KOT BILL (ANTI-SCAM UPI DISPATCH LOCK)
     // ==========================================
     function renderOrdersQueue() {
       const queue = document.getElementById('orders-queue-container');
@@ -1519,11 +1523,19 @@
       const storeLng = storeProfile?.lng || 89.9723;
 
       activeOrders.forEach(([orderId, o]) => {
+        const isUpi = (o.paymentMode === 'UPI');
+        const isUpiUnverified = isUpi && (o.paymentStatus !== 'VERIFIED');
+        const isUpiVerified = isUpi && (o.paymentStatus === 'VERIFIED');
+
         let cardClass = 'new-order';
         let badgeHtml = '<span class="badge badge-placed">NEW PLACED</span>';
 
-        if (o.status === 'ACCEPTED') badgeHtml = '<span class="badge badge-placed">ACCEPTED</span>';
-        else if (o.status === 'PREPARING' || o.status === 'PACKING') {
+        if (isUpiUnverified) {
+          cardClass = 'locked-order';
+          badgeHtml = '<span class="badge badge-danger"><i class="fa-solid fa-lock"></i> PAYMENT UNVERIFIED</span>';
+        } else if (o.status === 'ACCEPTED') {
+          badgeHtml = '<span class="badge badge-placed">ACCEPTED</span>';
+        } else if (o.status === 'PREPARING' || o.status === 'PACKING') {
           cardClass = 'packing';
           badgeHtml = '<span class="badge badge-packing">PACKING ITEMS</span>';
         } else if (o.status === 'READY_FOR_PICKUP') {
@@ -1552,15 +1564,40 @@
           `;
         });
 
-        let payBadge = `<span class="badge badge-placed"><i class="fa-solid fa-money-bill-wave"></i> COD</span>`;
-        if (o.paymentMode === 'UPI') {
-          payBadge = (o.paymentStatus === 'VERIFIED')
-            ? `<span class="badge badge-success"><i class="fa-solid fa-check-double"></i> UPI Paid (Verified)</span>`
-            : `<span class="badge badge-warning"><i class="fa-solid fa-lock"></i> UPI Unverified</span>`;
+        // Payment status badge with Clear Lock indication
+        let payBadge = `<span class="badge badge-placed"><i class="fa-solid fa-money-bill-wave"></i> COD CASH</span>`;
+        if (isUpi) {
+          if (isUpiVerified) {
+            payBadge = `<span class="badge badge-success"><i class="fa-solid fa-check-double"></i> UPI Paid (Verified by Admin)</span>`;
+          } else {
+            payBadge = `<span class="badge badge-danger" style="background: rgba(239, 68, 68, 0.2); border: 1px solid var(--danger);"><i class="fa-solid fa-lock"></i> UPI UNVERIFIED (HOLD)</span>`;
+          }
         }
 
+        // STRICT ANTI-SCAM ACTION CONTROLLER:
+        // If UPI is UNVERIFIED, store CANNOT accept, pack, or dispatch!
         let actionsHtml = '';
-        if (o.status === 'PLACED') {
+
+        if (isUpiUnverified) {
+          actionsHtml = `
+            <div style="background: rgba(239, 68, 68, 0.12); border: 1.5px dashed var(--danger); border-radius: 12px; padding: 0.8rem; margin-bottom: 0.65rem; text-align: center;">
+              <strong style="color: #fca5a5; font-size: 0.82rem; display: block; margin-bottom: 3px;">
+                <i class="fa-solid fa-shield-halved"></i> DISPATCH LOCKED: UPI PENDING ADMIN VERIFY
+              </strong>
+              <div style="font-size: 0.73rem; color: #cbd5e1; line-height: 1.35;">
+                Customer ne UPI se pay kiya hai par Admin ne verify nahi kiya. Fraud se bachne ke liye samaan pack ya dispatch karna blocked hai!
+              </div>
+            </div>
+            <div style="display: flex; gap: 8px;">
+              <button class="btn btn-danger btn-sm" onclick="rejectOrderByStore('${orderId}')" style="flex: 1;">
+                <i class="fa-solid fa-times"></i> Reject Fake
+              </button>
+              <button class="btn btn-outline btn-sm" style="flex: 2; border-color: var(--danger); color: #fca5a5; cursor: not-allowed; background: rgba(239, 68, 68, 0.08);" onclick="showToast('🚨 Action Blocked: Jab tak Admin UPI verify na kare, dispatch nahi kar sakte!', 'danger')">
+                <i class="fa-solid fa-lock"></i> Dispatch Blocked (Hold)
+              </button>
+            </div>
+          `;
+        } else if (o.status === 'PLACED') {
           actionsHtml = `
             <div style="display: flex; gap: 8px;">
               <button class="btn btn-danger btn-sm" onclick="rejectOrderByStore('${orderId}')" style="flex: 1;">
@@ -1605,7 +1642,7 @@
         const customerMapLink = (o.customerLat && o.customerLng) ? `https://www.google.com/maps?q=${o.customerLat},${o.customerLng}` : (o.locationLink || "");
         const cleanRiderPhone = rider?.phone ? rider.phone.replace(/[^0-9]/g, '') : '';
 
-        // SMART REASSIGNMENT & PASSING FEEDBACK FOR STORE
+        // Rider Reassignment & Feedback
         let riderBoxContent = '';
         if (rider) {
           riderBoxContent = `
@@ -1691,7 +1728,7 @@
                 </div>
               </div>
 
-              <!-- Rider Info with Live Approach Meter & Reassignment Notification -->
+              <!-- Rider Info with Approach Meter -->
               <div style="background: rgba(0,0,0,0.3); border-radius: 10px; padding: 0.65rem 0.85rem; margin-bottom: 0.85rem; font-size: 0.82rem;">
                 <div style="display:flex; justify-content:space-between; align-items:center;">
                   <span style="color: var(--text-muted); font-size: 0.7rem; text-transform: uppercase; font-weight:700;">Assigned Rider</span>
@@ -1711,7 +1748,17 @@
       });
     }
 
+    // FUNCTION-LEVEL HARD ANTI-SCAM LOCK
     function setOrderStatus(orderId, newStatus) {
+      const o = ordersCache[orderId];
+      if (!o) return;
+
+      // STRICT BLOCK: If UPI is not verified by Admin, reject forward status change!
+      if (o.paymentMode === 'UPI' && o.paymentStatus !== 'VERIFIED') {
+        showToast('🚨 Action Blocked: Customer ka UPI payment verify nahi hua hai! Dispatch allow nahi hai.', 'danger');
+        return;
+      }
+
       db.ref('orders/' + orderId).update({
         status: newStatus,
         updatedAt: Date.now()
@@ -1721,7 +1768,7 @@
     }
 
     function rejectOrderByStore(orderId) {
-      const reason = prompt(`Reason for rejecting Order #${orderId.slice(-6)}:`, "Item Out of Stock / Store Busy");
+      const reason = prompt(`Reason for rejecting Order #${orderId.slice(-6)}:`, "Item Out of Stock / Unverified UPI Scam");
       if (!reason) return;
 
       db.ref('orders/' + orderId).update({
@@ -1753,6 +1800,11 @@
       });
 
       const subAmt = Number(o.subtotalAmount || o.totalAmount || 0);
+      const isUpi = (o.paymentMode === 'UPI');
+      const payNotice = isUpi 
+        ? (o.paymentStatus === 'VERIFIED' ? 'PREPAID ONLINE (UPI VERIFIED)' : '*** WARNING: UPI UNVERIFIED (HOLD) ***')
+        : 'CASH ON DELIVERY (COD)';
+
       const printContainer = document.getElementById('printable-packing-slip');
       printContainer.innerHTML = `
         <div style="max-width: 300px; margin: 0 auto; font-family: monospace; font-size: 13px;">
@@ -1760,6 +1812,7 @@
           <p style="text-align: center; font-weight: bold;">STORE PACKING KOT / BILL</p>
           <hr style="border: none; border-top: 1px dashed #000; margin: 6px 0;">
           <p><strong>Order:</strong> #${orderId.slice(-6)}</p>
+          <p><strong>Payment:</strong> ${payNotice}</p>
           <p><strong>Delivery PIN:</strong> ${escapeHtml(o.deliveryOtp || 'N/A')}</p>
           <p><strong>Time:</strong> ${new Date(o.createdAt || Date.now()).toLocaleTimeString()}</p>
           <p><strong>Customer:</strong> ${escapeHtml(o.phone || 'N/A')}</p>
