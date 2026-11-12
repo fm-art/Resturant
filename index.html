@@ -231,7 +231,6 @@
       min-height: 100vh;
     }
 
-    /* Security Ribbon */
     .security-ribbon {
       background: #090e1a;
       color: #38bdf8;
@@ -283,7 +282,6 @@
       font-size: 1.4rem;
     }
 
-    /* Incoming Order Ringing Header Alert */
     #header-ringing-alert {
       display: none;
       background: #dc2626;
@@ -302,7 +300,6 @@
       100% { transform: scale(0.98); opacity: 0.85; }
     }
 
-    /* Store Open/Close Toggle Button */
     .store-duty-pill {
       display: flex;
       align-items: center;
@@ -328,7 +325,6 @@
       box-shadow: 0 0 10px var(--primary);
     }
 
-    /* Tabs Bar */
     .nav-tabs-wrapper {
       background: var(--bg-surface);
       border-bottom: 1px solid var(--border);
@@ -364,7 +360,6 @@
       border-bottom-color: var(--primary);
     }
 
-    /* Content Area */
     .main-body {
       flex: 1;
       padding: 1.25rem;
@@ -395,7 +390,6 @@
       gap: 10px;
     }
 
-    /* Orders Queue Grid */
     .orders-queue {
       display: grid;
       grid-template-columns: repeat(auto-fill, minmax(320px, 1fr));
@@ -440,7 +434,6 @@
       margin-bottom: 0.4rem;
     }
 
-    /* Badges */
     .badge {
       display: inline-block;
       padding: 0.35rem 0.65rem;
@@ -458,7 +451,6 @@
     .badge-danger { background: rgba(239, 68, 68, 0.15); color: #f87171; }
     .badge-warning { background: rgba(245, 158, 11, 0.15); color: #fbbf24; }
 
-    /* Products Grid */
     .menu-grid {
       display: grid;
       grid-template-columns: repeat(auto-fill, minmax(250px, 1fr));
@@ -514,7 +506,6 @@
       padding-top: 0.75rem;
     }
 
-    /* Wallet Hero Banner */
     .wallet-hero {
       background: linear-gradient(135deg, #162032, #0f172a);
       border: 1.5px solid var(--primary);
@@ -556,7 +547,6 @@
       font-weight: 900;
     }
 
-    /* Modals */
     .modal-backdrop {
       position: fixed;
       inset: 0;
@@ -581,24 +571,25 @@
       overflow-y: auto;
     }
 
-    /* Tables */
     .table-responsive { overflow-x: auto; }
     table { width: 100%; border-collapse: collapse; text-align: left; font-size: 0.86rem; }
     th { background: #090e1a; color: var(--text-muted); padding: 0.8rem 1rem; border-bottom: 1px solid var(--border); text-transform: uppercase; font-size: 0.72rem; }
     td { padding: 0.9rem 1rem; border-bottom: 1px solid var(--border); vertical-align: middle; }
 
-    /* Thermal Printable KOT */
+    /* Thermal Printable KOT with Handover Code */
     @media print {
-      body * { visibility: hidden; }
-      #printable-packing-slip, #printable-packing-slip * { visibility: visible; }
+      body * { visibility: hidden !important; }
+      #printable-packing-slip, #printable-packing-slip * { visibility: visible !important; }
       #printable-packing-slip {
-        position: absolute;
+        position: fixed;
         left: 0;
         top: 0;
         width: 100%;
         color: #000;
         background: #fff;
-        padding: 10px;
+        padding: 15px;
+        display: block !important;
+        font-family: monospace;
       }
     }
   </style>
@@ -706,7 +697,6 @@
         </div>
       </div>
       <div style="display: flex; align-items: center; gap: 8px;">
-        <!-- Live Store Duty Switch -->
         <div class="store-duty-pill" onclick="toggleStoreDuty()" title="Toggle Shop Open/Close">
           <div class="duty-dot is-open" id="duty-indicator"></div>
           <span id="duty-label">Open</span>
@@ -782,7 +772,6 @@
 
       <!-- TAB 3: WALLET, EARNINGS & PAYOUTS -->
       <section id="pane-reports" class="tab-pane">
-        <!-- Store Wallet Hero Card -->
         <div class="wallet-hero">
           <div>
             <span style="font-size: 0.76rem; color: var(--text-muted); text-transform: uppercase; font-weight: 800; letter-spacing: 0.5px;">
@@ -806,7 +795,6 @@
           </div>
         </div>
 
-        <!-- KPI Metrics -->
         <div class="stats-row">
           <div class="stat-card">
             <h4>Delivered Orders</h4>
@@ -826,7 +814,6 @@
           </div>
         </div>
 
-        <!-- Payout History Table -->
         <div class="card">
           <div class="card-title">
             <span>Payout Requests & Payment Receipts</span>
@@ -850,7 +837,6 @@
           </div>
         </div>
 
-        <!-- Complete Sales Ledger -->
         <div class="card">
           <div class="card-title">Order-by-Order Sales & Cancellation Ledger</div>
           <div class="table-responsive">
@@ -1054,6 +1040,18 @@
       return /^[a-zA-Z0-9.\-_]{2,256}@[a-zA-Z]{2,64}$/.test(String(upi || '').trim());
     }
 
+    // 4-Digit Pickup Confirmation Code (Calculates identical code as Rider App)
+    function getStorePickupCode(order, orderId) {
+      if (order && order.pickupOtp) return String(order.pickupOtp);
+      const cleanId = String(orderId || '');
+      let hash = 0;
+      for (let i = 0; i < cleanId.length; i++) {
+        hash = (hash << 5) - hash + cleanId.charCodeAt(i);
+        hash |= 0;
+      }
+      return String(Math.abs(hash) % 9000 + 1000);
+    }
+
     function cleanAndResolveImageUrl(rawUrl) {
       let url = String(rawUrl || '').trim();
       if (!url) return '';
@@ -1248,21 +1246,24 @@
       auth.signInWithEmailAndPassword(email, password).catch(err => authError.textContent = err.message);
     });
 
+    let signupDetectedLat = 26.4524;
+    let signupDetectedLng = 89.9723;
+
     function detectStoreSignupGPS() {
       if (!navigator.geolocation) return;
       showToast('Finding store location...', 'info');
       navigator.geolocation.getCurrentPosition(
         async (pos) => {
-          const lat = Number(pos.coords.latitude.toFixed(6));
-          const lng = Number(pos.coords.longitude.toFixed(6));
+          signupDetectedLat = Number(pos.coords.latitude.toFixed(6));
+          signupDetectedLng = Number(pos.coords.longitude.toFixed(6));
           try {
-            const resp = await fetch(`https://nominatim.openstreetmap.org/reverse?format=jsonv2&lat=${lat}&lon=${lng}`);
+            const resp = await fetch(`https://nominatim.openstreetmap.org/reverse?format=jsonv2&lat=${signupDetectedLat}&lon=${signupDetectedLng}`);
             const data = await resp.json();
-            document.getElementById('reg-address').value = data?.display_name ? data.display_name.split(',').slice(0, 3).join(', ') : `Gossaigaon Bazar [GPS: ${lat}, ${lng}]`;
+            document.getElementById('reg-address').value = data?.display_name ? data.display_name.split(',').slice(0, 3).join(', ') : `Gossaigaon Bazar [GPS: ${signupDetectedLat}, ${signupDetectedLng}]`;
           } catch(e) {
-            document.getElementById('reg-address').value = `Gossaigaon Bazar [GPS: ${lat}, ${lng}]`;
+            document.getElementById('reg-address').value = `Gossaigaon Bazar [GPS: ${signupDetectedLat}, ${signupDetectedLng}]`;
           }
-          showToast(`Store GPS Attached: ${lat}, ${lng}`, 'success');
+          showToast(`Store GPS Attached: ${signupDetectedLat}, ${signupDetectedLng}`, 'success');
         },
         (err) => showToast('GPS Error: ' + err.message, 'danger'),
         { enableHighAccuracy: true }
@@ -1297,8 +1298,9 @@
             hours: "7:00 AM - 9:00 PM",
             imageUrl: "https://images.unsplash.com/photo-1578916171728-46686eac8d58?w=600&auto=format&fit=crop&q=60",
             approved: false,
-            lat: 26.4524,
-            lng: 89.9723
+            lat: signupDetectedLat,
+            lng: signupDetectedLng,
+            locationLink: `https://www.google.com/maps?q=${signupDetectedLat},${signupDetectedLng}`
           });
         })
         .catch(err => authError.textContent = err.message);
@@ -1366,8 +1368,6 @@
           if (o.restaurantId === currentUser.uid) myOrders[id] = o;
         });
 
-        // Ring siren only for ACTIONABLE placed orders (COD or Verified UPI)
-        // If an order is unverified UPI, store should NOT pack/rush it!
         const actionablePlacedOrders = Object.values(myOrders).filter(o => 
           o.status === 'PLACED' && !(o.paymentMode === 'UPI' && o.paymentStatus !== 'VERIFIED')
         );
@@ -1498,7 +1498,7 @@
     });
 
     // ==========================================
-    // 5. PACKING QUEUE & THERMAL KOT BILL (ANTI-SCAM UPI DISPATCH LOCK)
+    // 5. PACKING QUEUE & THERMAL KOT BILL WITH PICKUP CODE
     // ==========================================
     function renderOrdersQueue() {
       const queue = document.getElementById('orders-queue-container');
@@ -1526,6 +1526,7 @@
         const isUpi = (o.paymentMode === 'UPI');
         const isUpiUnverified = isUpi && (o.paymentStatus !== 'VERIFIED');
         const isUpiVerified = isUpi && (o.paymentStatus === 'VERIFIED');
+        const pickupCode = getStorePickupCode(o, orderId);
 
         let cardClass = 'new-order';
         let badgeHtml = '<span class="badge badge-placed">NEW PLACED</span>';
@@ -1564,7 +1565,7 @@
           `;
         });
 
-        // Payment status badge with Clear Lock indication
+        // Payment status badge
         let payBadge = `<span class="badge badge-placed"><i class="fa-solid fa-money-bill-wave"></i> COD CASH</span>`;
         if (isUpi) {
           if (isUpiVerified) {
@@ -1574,10 +1575,8 @@
           }
         }
 
-        // STRICT ANTI-SCAM ACTION CONTROLLER:
-        // If UPI is UNVERIFIED, store CANNOT accept, pack, or dispatch!
+        // Action controllers
         let actionsHtml = '';
-
         if (isUpiUnverified) {
           actionsHtml = `
             <div style="background: rgba(239, 68, 68, 0.12); border: 1.5px dashed var(--danger); border-radius: 12px; padding: 0.8rem; margin-bottom: 0.65rem; text-align: center;">
@@ -1585,7 +1584,7 @@
                 <i class="fa-solid fa-shield-halved"></i> DISPATCH LOCKED: UPI PENDING ADMIN VERIFY
               </strong>
               <div style="font-size: 0.73rem; color: #cbd5e1; line-height: 1.35;">
-                Customer ne UPI se pay kiya hai par Admin ne verify nahi kiya. Fraud se bachne ke liye samaan pack ya dispatch karna blocked hai!
+                Customer ne UPI se pay kiya hai par Admin ne verify nahi kiya. Fraud se bachne ke liye pack ya dispatch blocked hai!
               </div>
             </div>
             <div style="display: flex; gap: 8px;">
@@ -1627,22 +1626,22 @@
           `;
         } else if (o.status === 'READY_FOR_PICKUP') {
           actionsHtml = `
-            <div style="text-align: center; font-size: 0.82rem; color: var(--info); font-weight: 700; padding: 6px;">
-              <i class="fa-solid fa-clock"></i> Waiting for Gossaigaon Rider Pickup
+            <div style="background:rgba(56,189,248,0.08); border:1px solid #38bdf8; border-radius:10px; padding:6px 10px; text-align:center; font-size: 0.8rem; color: var(--info); font-weight: 800;">
+              <i class="fa-solid fa-clock"></i> Rider Pickup Awaiting: Rider ko yeh code bataein [ ${pickupCode} ]
             </div>
           `;
         } else {
           actionsHtml = `
-            <div style="text-align: center; font-size: 0.82rem; color: var(--text-muted); padding: 6px;">
-              Dispatched with Delivery Rider
+            <div style="text-align: center; font-size: 0.82rem; color: var(--success); font-weight:800; padding: 6px;">
+              <i class="fa-solid fa-circle-check"></i> Order Picked Up by Delivery Rider
             </div>
           `;
         }
 
         const customerMapLink = (o.customerLat && o.customerLng) ? `https://www.google.com/maps?q=${o.customerLat},${o.customerLng}` : (o.locationLink || "");
         const cleanRiderPhone = rider?.phone ? rider.phone.replace(/[^0-9]/g, '') : '';
+        const waRiderPhone = cleanRiderPhone.length === 10 ? '91' + cleanRiderPhone : cleanRiderPhone;
 
-        // Rider Reassignment & Feedback
         let riderBoxContent = '';
         if (rider) {
           riderBoxContent = `
@@ -1650,7 +1649,7 @@
               <strong style="color: #fff;"><i class="fa-solid fa-motorcycle" style="color:var(--primary);"></i> ${escapeHtml(rider.name)}</strong>
               <div style="display: flex; gap: 6px;">
                 ${rider.phone ? `<a href="tel:${rider.phone}" class="btn btn-outline btn-sm" style="padding: 2px 7px; font-size:0.75rem;"><i class="fa-solid fa-phone"></i> Call</a>` : ''}
-                ${cleanRiderPhone ? `<a href="https://wa.me/${cleanRiderPhone}" target="_blank" class="btn btn-success btn-sm" style="padding: 2px 7px; font-size:0.75rem;"><i class="fa-brands fa-whatsapp"></i> Chat</a>` : ''}
+                ${cleanRiderPhone ? `<a href="https://wa.me/${waRiderPhone}" target="_blank" class="btn btn-success btn-sm" style="padding: 2px 7px; font-size:0.75rem;"><i class="fa-brands fa-whatsapp"></i> Chat</a>` : ''}
               </div>
             </div>
           `;
@@ -1696,6 +1695,17 @@
               ${isCustomerBanned ? `<div style="margin-bottom:0.5rem;"><span class="badge badge-danger">🚨 BANNED CUSTOMER ACCOUNT</span></div>` : ''}
               ${emergencyNoticeHtml}
 
+              <!-- 📦 SECURE RIDER HANDOVER PICKUP CODE BADGE -->
+              <div style="background: rgba(56, 189, 248, 0.08); border: 1.5px dashed #38bdf8; border-radius: 12px; padding: 0.6rem 0.85rem; margin-bottom: 0.75rem; display: flex; justify-content: space-between; align-items: center;">
+                <div>
+                  <span style="font-size: 0.68rem; color: #38bdf8; font-weight: 800; text-transform: uppercase; display: block;">📦 Rider Handover Code</span>
+                  <small style="color: var(--text-muted); font-size: 0.72rem;">Sahi order dene ke liye rider se yeh code puchein</small>
+                </div>
+                <span style="font-family: monospace; font-size: 1.35rem; font-weight: 900; color: #38bdf8; letter-spacing: 2px; background: rgba(0,0,0,0.5); padding: 3px 10px; border-radius: 8px; border: 1px solid rgba(56,189,248,0.4);">
+                  ${pickupCode}
+                </span>
+              </div>
+
               <!-- Customer Address & Distance -->
               <div style="background: rgba(255,255,255,0.03); border-radius: 10px; padding: 0.6rem 0.8rem; margin-bottom: 0.75rem; font-size: 0.82rem;">
                 <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:3px;">
@@ -1714,7 +1724,6 @@
 
               <div style="margin-bottom: 0.75rem; display:flex; justify-content:space-between; align-items:center;">
                 ${payBadge}
-                ${o.deliveryOtp ? `<span style="font-family:monospace; font-size:0.78rem; color:#38bdf8; font-weight:800;">PIN: ${escapeHtml(o.deliveryOtp)}</span>` : ''}
               </div>
 
               <div class="order-items-box">
@@ -1748,21 +1757,26 @@
       });
     }
 
-    // FUNCTION-LEVEL HARD ANTI-SCAM LOCK
     function setOrderStatus(orderId, newStatus) {
       const o = ordersCache[orderId];
       if (!o) return;
 
-      // STRICT BLOCK: If UPI is not verified by Admin, reject forward status change!
       if (o.paymentMode === 'UPI' && o.paymentStatus !== 'VERIFIED') {
         showToast('🚨 Action Blocked: Customer ka UPI payment verify nahi hua hai! Dispatch allow nahi hai.', 'danger');
         return;
       }
 
-      db.ref('orders/' + orderId).update({
+      const updates = {
         status: newStatus,
         updatedAt: Date.now()
-      }).then(() => {
+      };
+
+      // Set pickupOtp in DB when marked ready for pickup
+      if (newStatus === 'READY_FOR_PICKUP' && !o.pickupOtp) {
+        updates.pickupOtp = getStorePickupCode(o, orderId);
+      }
+
+      db.ref('orders/' + orderId).update(updates).then(() => {
         showToast(`Order status: ${newStatus}!`, 'info');
       });
     }
@@ -1782,7 +1796,7 @@
     }
 
     // ==========================================
-    // 6. THERMAL PRINTABLE KOT SLIP
+    // 6. THERMAL PRINTABLE KOT SLIP WITH CODE
     // ==========================================
     function printPackingSlip(orderId) {
       const o = ordersCache[orderId];
@@ -1805,6 +1819,8 @@
         ? (o.paymentStatus === 'VERIFIED' ? 'PREPAID ONLINE (UPI VERIFIED)' : '*** WARNING: UPI UNVERIFIED (HOLD) ***')
         : 'CASH ON DELIVERY (COD)';
 
+      const pickupCode = getStorePickupCode(o, orderId);
+
       const printContainer = document.getElementById('printable-packing-slip');
       printContainer.innerHTML = `
         <div style="max-width: 300px; margin: 0 auto; font-family: monospace; font-size: 13px;">
@@ -1812,8 +1828,12 @@
           <p style="text-align: center; font-weight: bold;">STORE PACKING KOT / BILL</p>
           <hr style="border: none; border-top: 1px dashed #000; margin: 6px 0;">
           <p><strong>Order:</strong> #${orderId.slice(-6)}</p>
+          <div style="border: 2px dashed #000; padding: 6px; text-align: center; margin: 6px 0;">
+            <div style="font-size: 11px; font-weight: bold;">RIDER HANDOVER CODE:</div>
+            <div style="font-size: 20px; font-weight: bold; letter-spacing: 3px;">[ ${pickupCode} ]</div>
+            <small style="font-size: 10px;">(Rider ko parcel dene se pehle verify karein)</small>
+          </div>
           <p><strong>Payment:</strong> ${payNotice}</p>
-          <p><strong>Delivery PIN:</strong> ${escapeHtml(o.deliveryOtp || 'N/A')}</p>
           <p><strong>Time:</strong> ${new Date(o.createdAt || Date.now()).toLocaleTimeString()}</p>
           <p><strong>Customer:</strong> ${escapeHtml(o.phone || 'N/A')}</p>
           <p><strong>Address:</strong> ${escapeHtml(o.address || 'Gossaigaon')}</p>
@@ -1826,7 +1846,7 @@
             <span>TOTAL ITEMS VALUE:</span>
             <span>₹${subAmt.toFixed(2)}</span>
           </div>
-          <p style="text-align: center; margin-top: 10px; font-size: 11px;">*** VERIFY ALL ITEMS BEFORE DISPATCH ***</p>
+          <p style="text-align: center; margin-top: 10px; font-size: 11px;">*** PACK ACCURATELY & SEAL BAG ***</p>
         </div>
       `;
 
@@ -1836,7 +1856,7 @@
     }
 
     // ==========================================
-    // 7. PRODUCTS CATALOG & FAST CONTROLLER
+    // 7. PRODUCTS CATALOG
     // ==========================================
     function renderProductsGrid() {
       const grid = document.getElementById('menu-items-grid');
