@@ -6,7 +6,7 @@ on:
   workflow_dispatch:
 
 jobs:
-  build-debug-apk:
+  build-apk:
     runs-on: ubuntu-latest
 
     steps:
@@ -19,23 +19,32 @@ jobs:
           java-version: '21'
           distribution: 'temurin'
 
-      - name: Setup Gradle
+      - name: Setup Gradle 9.3.1
         uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: '9.3.1'
 
-      - name: Make gradlew executable
-        run: chmod +x gradlew
-
-      - name: Ensure debug.keystore exists
+      - name: Detect Android project directory
         run: |
+          SETTINGS_FILE=$(find . -maxdepth 3 \( -name "settings.gradle.kts" -o -name "settings.gradle" \) | head -n 1)
+          if [ -z "$SETTINGS_FILE" ]; then
+            echo "ERROR: settings.gradle.kts repo me nahi mila! Check karein ki app aur gradle files push hui hain ya nahi."
+            ls -la
+            exit 1
+          fi
+          PROJECT_DIR=$(cd "$(dirname "$SETTINGS_FILE")" && pwd)
+          echo "PROJECT_DIR=$PROJECT_DIR" >> "$GITHUB_ENV"
+          echo "Project found at: $PROJECT_DIR"
+
+      - name: Ensure debug.keystore and .env exist
+        run: |
+          cd "$PROJECT_DIR"
           if [ ! -f debug.keystore ]; then
             keytool -genkey -v -keystore debug.keystore \
               -storepass android -alias androiddebugkey -keypass android \
               -keyalg RSA -keysize 2048 -validity 10000 \
               -dname "CN=Android Debug,O=Android,C=US"
           fi
-
-      - name: Ensure .env exists
-        run: |
           if [ ! -f .env ]; then
             if [ -f .env.example ]; then
               cp .env.example .env
@@ -45,10 +54,43 @@ jobs:
           fi
 
       - name: Build Debug APK
-        run: ./gradlew assembleDebug --no-daemon
+        run: |
+          cd "$PROJECT_DIR"
+          if [ -f gradlew ]; then
+            chmod +x gradlew
+            ./gradlew assembleDebug --no-daemon
+          else
+            gradle assembleDebug --no-daemon
+          fi
 
       - name: Upload Debug APK
         uses: actions/upload-artifact@v4
         with:
           name: Gossaigaon-Store-Debug-APK
-          path: app/build/outputs/apk/debug/*.apk
+          path: '**/app/build/outputs/apk/debug/*.apk'
+
+      - name: Decode Release Keystore
+        if: secrets.KEYSTORE_BASE64 != ''
+        run: |
+          echo "${{ secrets.KEYSTORE_BASE64 }}" | base64 -d > "$PROJECT_DIR/my-upload-key.jks"
+
+      - name: Build Release APK
+        if: secrets.KEYSTORE_BASE64 != ''
+        env:
+          KEYSTORE_PATH: ${{ env.PROJECT_DIR }}/my-upload-key.jks
+          STORE_PASSWORD: ${{ secrets.STORE_PASSWORD }}
+          KEY_PASSWORD: ${{ secrets.KEY_PASSWORD }}
+        run: |
+          cd "$PROJECT_DIR"
+          if [ -f gradlew ]; then
+            ./gradlew assembleRelease --no-daemon
+          else
+            gradle assembleRelease --no-daemon
+          fi
+
+      - name: Upload Release APK
+        if: secrets.KEYSTORE_BASE64 != ''
+        uses: actions/upload-artifact@v4
+        with:
+          name: Gossaigaon-Store-Release-APK
+          path: '**/app/build/outputs/apk/release/*.apk'
