@@ -81,6 +81,22 @@
       },
       "oauth_client": [
         {
+          "client_id": "396740286096-b6f9em3tf1cvgsnpqpu6ckghulgchcqr.apps.googleusercontent.com",
+          "client_type": 1,
+          "android_info": {
+            "package_name": "com.gossaigaon.store",
+            "certificate_hash": "5f8aa14b36304c2801941bad6767a533b72c5c48"
+          }
+        },
+        {
+          "client_id": "396740286096-rqgkqb8locejqtvtrogi8qe7hf9n6bmh.apps.googleusercontent.com",
+          "client_type": 1,
+          "android_info": {
+            "package_name": "com.gossaigaon.store",
+            "certificate_hash": "6286be9b403159f8736ae4247b76cbbe2c6f0c08"
+          }
+        },
+        {
           "client_id": "396740286096-qpdnc5g4ja1jv7p7i04dns4or9dvpc3n.apps.googleusercontent.com",
           "client_type": 3
         }
