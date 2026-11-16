@@ -48,7 +48,6 @@ import androidx.compose.material.icons.filled.Store
 import androidx.compose.material.icons.filled.Storefront
 import androidx.compose.material.icons.filled.Visibility
 import androidx.compose.material.icons.filled.VisibilityOff
-import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.CircularProgressIndicator
@@ -177,17 +176,23 @@ fun AuthScreen(
     var regLng by remember { mutableDoubleStateOf(89.9723) }
     var gpsBusy by remember { mutableStateOf(false) }
 
+    fun reportGoogleFailure(message: String) {
+        googleSignInBusy = false
+        onGoogleSignInError(message)
+        onToast(message, ToastKind.DANGER)
+    }
+
     fun launchDirectGoogleSignIn() {
         val clientId = runCatching {
             context.getString(R.string.default_web_client_id)
         }.getOrNull().orEmpty()
         if (clientId.isBlank()) {
-            onGoogleSignInError("Google Sign-In client ID is not configured.")
+            reportGoogleFailure("Google Sign-In client ID is not configured.")
             return
         }
         val activity = context.findActivity()
         if (activity == null) {
-            onGoogleSignInError("Unable to open Google account chooser from this screen.")
+            reportGoogleFailure("Unable to open Google account chooser from this screen.")
             return
         }
         googleSignInBusy = true
@@ -209,20 +214,18 @@ fun AuthScreen(
                     googleSignInBusy = false
                     onGoogleSignInToken(googleIdToken)
                 } else {
-                    googleSignInBusy = false
-                    onGoogleSignInError("Unexpected Google credential response.")
+                    reportGoogleFailure("Unexpected Google credential response.")
                 }
             } catch (e: GetCredentialCancellationException) {
-                Log.w("Auth", "Google Sign-In cancelled by user: ${e.message}", e)
-                googleSignInBusy = false
+                Log.w("Auth", "Google Sign-In cancelled/failed: ${e.message}", e)
+                val msg = "Google Sign-In cancelled or blocked (${e.message ?: "Verify SHA-1 & OAuth in Firebase"})"
+                reportGoogleFailure(msg)
             } catch (e: NoCredentialException) {
                 Log.w("Auth", "No Google credentials found on device: ${e.message}", e)
-                googleSignInBusy = false
-                onGoogleSignInError("No Google account found on device. Add a Google account or sign in with email.")
+                reportGoogleFailure("No Google account found on device. Add a Google account or sign in with email.")
             } catch (e: Exception) {
                 Log.e("Auth", "Direct Google Sign-In failed", e)
-                googleSignInBusy = false
-                onGoogleSignInError(e.localizedMessage ?: "Google Sign-In failed. Please try again.")
+                reportGoogleFailure(e.localizedMessage ?: "Google Sign-In failed. Please try again.")
             }
         }
     }
@@ -340,7 +343,6 @@ fun AuthScreen(
                         onSignOut = onSignOutVerification
                     )
                 } else {
-                    // Direct Google Sign-In Card Action
                     DirectGoogleLoginButton(
                         busy = googleSignInBusy || isLoading,
                         onClick = { launchDirectGoogleSignIn() }
